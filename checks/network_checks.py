@@ -123,7 +123,6 @@ class NetworkCheck(AgentCheck):
         else:
             self.log.error("Instance: %s skipped because it's already running." % name)
 
-
     def _process(self, instance):
         try:
             statuses = self._check(instance)
@@ -135,7 +134,7 @@ class NetworkCheck(AgentCheck):
 
             elif isinstance(statuses, list):
                 for status in statuses:
-                    sc_name, status, msg = statuses
+                    sc_name, status, msg = status
                     self.resultsq.put((status, msg, sc_name, instance))
 
         except Exception:
@@ -189,11 +188,11 @@ class NetworkCheck(AgentCheck):
                 if nb_failures >= threshold:
                     if self.notified.get(instance_name, {}).get(sc_name, Status.UP) != Status.DOWN:
                         event = self._create_status_event(sc_name, status, msg, instance)
-                        self.notified[instance_name][sc_name] = Status.DOWN
+                        self.notified[(instance_name, sc_name)] = Status.DOWN
                 else:
                     if self.notified.get(instance_name, {}).get(sc_name, Status.UP) != Status.UP:
                         event = self._create_status_event(sc_name, status, msg, instance)
-                        self.notified[instance_name][sc_name] = Status.UP
+                        self.notified[(instance_name, sc_name)] = Status.UP
 
                 if event is not None:
                     self.events.append(event)

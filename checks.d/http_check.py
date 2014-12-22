@@ -20,7 +20,10 @@ class HTTPCheck(NetworkCheck):
     SOURCE_TYPE_NAME = 'system'
 
     def __init__(self, name, init_config, agentConfig, instances):
-        self.ca_certs = init_config.get('ca_certs', LINUX_CA_CERTS)
+        if init_config and 'ca_certs' in init_config:
+            self.ca_certs = init_config['ca_certs']
+        else:
+            self.ca_certs = LINUX_CA_CERTS
         NetworkCheck.__init__(self, name, init_config, agentConfig, instances)
 
     def _load_conf(self, instance):
@@ -29,7 +32,7 @@ class HTTPCheck(NetworkCheck):
         username = instance.get('username', None)
         password = instance.get('password', None)
         timeout = int(instance.get('timeout', 10))
-        config_headers = instance.get('headers',{})
+        config_headers = instance.get('headers', {})
         headers = agent_headers(self.agentConfig)
         headers.update(config_headers)
         url = instance.get('url', None)
@@ -47,6 +50,9 @@ class HTTPCheck(NetworkCheck):
         content = ''
         start = time.time()
 
+        service_checks = []
+        resp = None
+
         try:
             self.log.debug("Connecting to %s" % addr)
             if disable_ssl_validation and urlparse(addr)[0] == "https":
@@ -59,24 +65,37 @@ class HTTPCheck(NetworkCheck):
         except socket.timeout, e:
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, str(e), length))
-            return Status.DOWN, "%s. Connection failed after %s ms" % (str(e), length)
+            service_checks.append((
+                'status',
+                Status.DOWN,
+                "%s. Connection failed after %s ms" % (str(e), length)
+            ))
 
         except HttpLib2Error, e:
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, str(e), length))
-            return Status.DOWN, "%s. Connection failed after %s ms" % (str(e), length)
+            service_checks.append((
+                'status',
+                Status.DOWN,
+                "%s. Connection failed after %s ms" % (str(e), length)
+            ))
 
         except socket.error, e:
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, repr(e), length))
-            return Status.DOWN, "Socket error: %s. Connection failed after %s ms" % (repr(e), length)
+            service_checks.append((
+                'status',
+                Status.DOWN,
+                "Socket error: %s. Connection failed after %s ms" % (repr(e), length)
+            ))
 
         except Exception, e:
             length = int((time.time() - start) * 1000)
             self.log.error("Unhandled exception %s. Connection failed after %s ms" % (str(e), length))
             raise
 
-        if response_time:
+        # Only report this metric if the site is not down
+        if response_time and not service_checks:
             # Stop the timer as early as possible
             running_time = time.time() - start
             # Store tags in a temporary list so that we don't modify the global tags data structure
@@ -85,20 +104,19 @@ class HTTPCheck(NetworkCheck):
             tags_list.append('url:%s' % addr)
             self.gauge('network.http.response_time', running_time, tags=tags_list)
 
-        service_checks = []
-
-        if int(resp.status) >= 400:
-            self.log.info("%s is DOWN, error code: %s" % (addr, str(resp.status)))
-            if not include_content:
-                content = ''
-            service_checks.append((
-                "status", Status.DOWN, (resp.status, resp.reason, content or '')
-            ))
-
-        self.log.debug("%s is UP" % addr)
-        service_checks.append((
-            "status", Status.UP, "UP"
-        ))
+        if not service_checks:
+            if resp is not None and int(resp.status) >= 400:
+                self.log.info("%s is DOWN, error code: %s" % (addr, str(resp.status)))
+                if not include_content:
+                    content = ''
+                service_checks.append((
+                    "status", Status.DOWN, (resp.status, resp.reason, content or '')
+                ))
+            else:
+                self.log.debug("%s is UP" % addr)
+                service_checks.append((
+                    "status", Status.UP, "UP"
+                ))
 
         if ssl_expire:
             status, msg = self.check_cert_expiration(instance)
@@ -226,7 +244,7 @@ class HTTPCheck(NetworkCheck):
             cert = ssl_sock.getpeercert()
 
         except Exception as e:
-            return Status.WARNING, "%s" % (str(e))
+            return Status.DOWN, "%s" % (str(e))
 
         exp_date = datetime.strptime(cert['notAfter'], "%b %d %H:%M:%S %Y %Z")
         days_left = exp_date - datetime.utcnow()

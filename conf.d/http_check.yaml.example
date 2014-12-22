@@ -1,4 +1,6 @@
 init_config:
+  # Change default path of trusted certificates
+  # ca_certs: /etc/ssl/certs/ca-certificates.crt
 
 instances:
   - name: My first service

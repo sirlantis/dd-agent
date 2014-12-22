@@ -36,29 +36,30 @@ class HttpSslTestCase(unittest.TestCase):
             ]
         }
 
-        agentConfig = {}
+        # Needed for the HTTP headers
+        agentConfig = {'version' : '5.1'}
         self.check = load_check('http_check', config, agentConfig)
 
         #OK Status
         self.check.check(config['instances'][0])
-        time.sleep(1)
+        time.sleep(2)
         self.check._process_results()
         service = self.check.get_service_checks()
         self.assertEqual(service[1].get('status'), AgentCheck.OK)
 
         #Warning Status due to close to expiration date
         self.check.check(config['instances'][1])
-        time.sleep(1)
+        time.sleep(2)
         self.check._process_results()
         service = self.check.get_service_checks()
         self.assertEqual(service[1].get('status'), AgentCheck.WARNING)
 
         #Warning Status due to bad link
         self.check.check(config['instances'][2])
-        time.sleep(1)
+        time.sleep(2)
         self.check._process_results()
         service = self.check.get_service_checks()
-        self.assertEqual(service[1].get('status'), AgentCheck.WARNING)
+        self.assertEqual(service[1].get('status'), AgentCheck.CRITICAL)
 
 
 
@@ -77,12 +78,13 @@ class HttpSslTestCase(unittest.TestCase):
             },
             ]
         }
-        agentConfig = {}
+        # Needed for the HTTP headers
+        agentConfig = {'version' : '5.1'}
         self.check = load_check('http_check', config, agentConfig)
 
         #Failed Status
         self.check.check(config['instances'][0])
-        time.sleep(1)
+        time.sleep(2)
         self.check._process_results()
         service = self.check.get_service_checks()
         self.assertEqual(service[1].get('status'), AgentCheck.CRITICAL)

@@ -186,11 +186,11 @@ class NetworkCheck(AgentCheck):
                 nb_failures = self.statuses[instance_name][sc_name].count(Status.DOWN)
 
                 if nb_failures >= threshold:
-                    if self.notified.get(instance_name, {}).get(sc_name, Status.UP) != Status.DOWN:
+                    if self.notified.get((instance_name, sc_name), Status.UP) != Status.DOWN:
                         event = self._create_status_event(sc_name, status, msg, instance)
                         self.notified[(instance_name, sc_name)] = Status.DOWN
                 else:
-                    if self.notified.get(instance_name, {}).get(sc_name, Status.UP) != Status.UP:
+                    if self.notified.get((instance_name, sc_name), Status.UP) != Status.UP:
                         event = self._create_status_event(sc_name, status, msg, instance)
                         self.notified[(instance_name, sc_name)] = Status.UP
 

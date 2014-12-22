@@ -66,7 +66,7 @@ class HTTPCheck(NetworkCheck):
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, str(e), length))
             service_checks.append((
-                'status',
+                'http_check',
                 Status.DOWN,
                 "%s. Connection failed after %s ms" % (str(e), length)
             ))
@@ -75,7 +75,7 @@ class HTTPCheck(NetworkCheck):
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, str(e), length))
             service_checks.append((
-                'status',
+                'http_check',
                 Status.DOWN,
                 "%s. Connection failed after %s ms" % (str(e), length)
             ))
@@ -84,7 +84,7 @@ class HTTPCheck(NetworkCheck):
             length = int((time.time() - start) * 1000)
             self.log.info("%s is DOWN, error: %s. Connection failed after %s ms" % (addr, repr(e), length))
             service_checks.append((
-                'status',
+                'http_check',
                 Status.DOWN,
                 "Socket error: %s. Connection failed after %s ms" % (repr(e), length)
             ))
@@ -110,18 +110,18 @@ class HTTPCheck(NetworkCheck):
                 if not include_content:
                     content = ''
                 service_checks.append((
-                    "status", Status.DOWN, (resp.status, resp.reason, content or '')
+                    'http_check', Status.DOWN, (resp.status, resp.reason, content or '')
                 ))
             else:
                 self.log.debug("%s is UP" % addr)
                 service_checks.append((
-                    "status", Status.UP, "UP"
+                    "http_check", Status.UP, "UP"
                 ))
 
         if ssl_expire:
             status, msg = self.check_cert_expiration(instance)
             service_checks.append((
-                "ssl_cert", status, msg
+                'http_check.ssl_cert', status, msg
             ))
 
         return service_checks
@@ -129,7 +129,7 @@ class HTTPCheck(NetworkCheck):
     # FIXME: 5.3 drop this function
     def _create_status_event(self, sc_name, status, msg, instance):
         # Create only this deprecated event for old check
-        if 'sc_name' != 'status':
+        if sc_name != 'http_check':
             return
         # Get the instance settings
         url = instance.get('url', None)
@@ -206,7 +206,7 @@ class HTTPCheck(NetworkCheck):
         url = instance.get('url', None)
         sc_tags = ['url:%s' % url]
 
-        if sc_name == 'status':
+        if sc_name == 'http_check':
             # format the HTTP response body into the event
             if isinstance(msg, tuple):
                 code, reason, content = msg

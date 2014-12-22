@@ -13,9 +13,15 @@ from checks.network_checks import NetworkCheck, Status, EventType
 from util import headers as agent_headers
 
 
+LINUX_CA_CERTS = '/etc/ssl/certs/ca-certificates.crt'
+
+
 class HTTPCheck(NetworkCheck):
     SOURCE_TYPE_NAME = 'system'
-    SERVICE_CHECK_PREFIX = 'http_check'
+
+    def __init__(self, name, init_config, agentConfig, instances):
+        self.ca_certs = init_config.get('ca_certs', LINUX_CA_CERTS)
+        NetworkCheck.__init__(self, name, init_config, agentConfig, instances)
 
     def _load_conf(self, instance):
         # Fetches the conf
@@ -37,7 +43,6 @@ class HTTPCheck(NetworkCheck):
         return url, username, password, timeout, include_content, headers, response_time, tags, ssl, ssl_expire
 
     def _check(self, instance):
-
         addr, username, password, timeout, include_content, headers, response_time, tags, disable_ssl_validation, ssl_expire = self._load_conf(instance)
         content = ''
         start = time.time()
@@ -72,29 +77,47 @@ class HTTPCheck(NetworkCheck):
             raise
 
         if response_time:
-           # Stop the timer as early as possible
-           running_time = time.time() - start
-           # Store tags in a temporary list so that we don't modify the global tags data structure
-           tags_list = []
-           tags_list.extend(tags)
-           tags_list.append('url:%s' % addr)
-           self.gauge('network.http.response_time', running_time, tags=tags_list)
+            # Stop the timer as early as possible
+            running_time = time.time() - start
+            # Store tags in a temporary list so that we don't modify the global tags data structure
+            tags_list = []
+            tags_list.extend(tags)
+            tags_list.append('url:%s' % addr)
+            self.gauge('network.http.response_time', running_time, tags=tags_list)
+
+        service_checks = []
 
         if int(resp.status) >= 400:
             self.log.info("%s is DOWN, error code: %s" % (addr, str(resp.status)))
             if not include_content:
                 content = ''
-            return Status.DOWN, (resp.status, resp.reason, content or '')
+            service_checks.append((
+                "status", Status.DOWN, (resp.status, resp.reason, content or '')
+            ))
 
         self.log.debug("%s is UP" % addr)
-        return Status.UP, "UP"
+        service_checks.append((
+            "status", Status.UP, "UP"
+        ))
 
-    def _create_status_event(self, status, msg, instance):
+        if ssl_expire:
+            status, msg = self.check_cert_expiration(instance)
+            service_checks.append((
+                "ssl_cert", status, msg
+            ))
+
+        return service_checks
+
+    # FIXME: 5.3 drop this function
+    def _create_status_event(self, sc_name, status, msg, instance):
+        # Create only this deprecated event for old check
+        if 'sc_name' != 'status':
+            return
         # Get the instance settings
         url = instance.get('url', None)
         name = instance.get('name', None)
-        nb_failures = self.statuses[name].count(Status.DOWN)
-        nb_tries = len(self.statuses[name])
+        nb_failures = self.statuses[name][sc_name].count(Status.DOWN)
+        nb_tries = len(self.statuses[name][sc_name])
         tags = instance.get('tags', [])
         tags_list = []
         tags_list.extend(tags)
@@ -159,35 +182,36 @@ class HTTPCheck(NetworkCheck):
              "tags": tags_list
         }
 
-    def report_as_service_check(self, name, status, instance, msg=None):
-        service_check_name = self.normalize(name, self.SERVICE_CHECK_PREFIX)
+    def report_as_service_check(self, sc_name, status, instance, msg=None):
+        instance_name = instance['name']
+        service_check_name = self.normalize(instance_name, sc_name)
         url = instance.get('url', None)
+        sc_tags = ['url:%s' % url]
 
+        if sc_name == 'status':
+            # format the HTTP response body into the event
+            if isinstance(msg, tuple):
+                code, reason, content = msg
 
-        # format the HTTP response body into the event
-        if isinstance(msg, tuple):
-            code, reason, content = msg
+                # truncate and html-escape content
+                if len(content) > 200:
+                    content = content[:197] + '...'
 
-            # truncate and html-escape content
-            if len(content) > 200:
-                content = content[:197] + '...'
-
-            msg = "%d %s\n\n%s" % (code, reason, content)
-            msg = msg.rstrip()
-
+                msg = "%d %s\n\n%s" % (code, reason, content)
+                msg = msg.rstrip()
 
         self.service_check(service_check_name,
                            NetworkCheck.STATUS_TO_SERVICE_CHECK[status],
-                           tags= ['url:%s' % url],
+                           tags=sc_tags,
                            message=msg
                            )
 
-    def report_ssl(self, instance):
+    def check_cert_expiration(self, instance):
         warning_days = instance.get('days_warning', 14)
-        host = instance.get('url', None)
+        url = instance.get('url', None)
 
-        o = urlparse(host)
-        url = o.netloc
+        o = urlparse(url)
+        host = o.netloc
 
         if o.port:
             port = o.port
@@ -195,11 +219,10 @@ class HTTPCheck(NetworkCheck):
             port = 443
 
         try:
-            CA_CERTS = "/etc/ssl/certs/ca-certificates.crt"
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((url, port))
+            sock.connect((host, port))
             ssl_sock = ssl.wrap_socket(sock, cert_reqs=ssl.CERT_REQUIRED,
-                                           ca_certs=CA_CERTS)
+                                           ca_certs=self.ca_certs)
             cert = ssl_sock.getpeercert()
 
         except Exception as e:
